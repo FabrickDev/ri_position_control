@@ -16,11 +16,23 @@ class fab_position_control(Node):
         super().__init__('fab_position_control')
 
         # Enable this for More Debug Info (Wheel Speed, Linear Speed, Angular Speed, DT, PosX, PosY, Tetha)
-        self.ShowMoreDebugInfo = True
+        self.ShowMoreDebugInfo = False
+
+        # Script Kurangi 0.2 tambah 0.4
+        self.TargetsPosition = [[1.0, 2.4], [2.6, 2.4], [2.6, 3.2], [4.0, 3.2], [4.0, 0.7], [8.9, 0.7], [8.8, 7.5]]
+        self.TargetsPosition = [[x - 0.1, y + 0.31] for x, y in self.TargetsPosition]
+        self.RunningOrder = 0
+        self.IsFinished = False
 
         # Constants Proportional:
-        self.KTetha = 3.0
-        self.KVel = 3.0
+        self.KTetha = 0.7
+        self.KVel = 1.6
+
+        # Error Tolarance
+        self.ErrorTol = 0.02
+        self.AlignTol = 0.02      # selesai berputar
+        self.RealignTol = 0.2     # putar lagi jika melenceng sebesar ini
+        self.WasRotate = False
 
         self.wheel_radius = 0.03
         self.wheel_separation = 0.17
@@ -40,8 +52,14 @@ class fab_position_control(Node):
         self.Vel_WR = Float64()
 
         # Target Position Variables
-        self.TargetPosX = TargetX
-        self.TargetPosY = TargetY
+        # self.TargetPosX = TargetX
+        # self.TargetPosY = TargetY
+        self.TargetPosX = self.TargetsPosition[self.RunningOrder][0]
+        self.TargetPosY = self.TargetsPosition[self.RunningOrder][1]
+
+        # Last Vel
+        self.LastVelR = 0.0
+        self.LastVelL = 0.0
 
         # Gathering Data From input_ik and Wheels
         self.PubCmdVel = self.create_publisher(
@@ -56,7 +74,8 @@ class fab_position_control(Node):
             10
         )
 
-        self.create_timer(0.1, self.fab_position_control_func)
+        self.create_timer(0.01, self.fab_position_control_func)
+        #self.create_timer(0.1, self.fab_test_angular)
 
         self.get_logger().info(
             f'ri_position_control/fab_position_control.py is running...'
@@ -69,18 +88,25 @@ class fab_position_control(Node):
         #     self.get_logger().info(
         #         f'Left Wheel Velocity: {self.Vel_WL.data} | Right Wheel Velocity: {self.Vel_WR.data}'
         #     )
+    def fab_test_angular(self):
+        _msg = Twist()
+        _msg.linear.x = 0.0
+        _msg.angular.z = 0.1
+        self.PubCmdVel.publish(_msg)
 
     def fab_position_control_func(self):
 
         self.PrevTime = self.CurrentTime
         self.CurrentTime = self.get_clock().now().nanoseconds * 1e-9
+        LastDT = self.DT
         self.DT = self.CurrentTime - self.PrevTime
 
-        if self.CurrentTime == 0:
+        if self.CurrentTime == 0 or self.DT > 1000.0:  # First Time or DT too big, reset
             _msg = Twist()
             _msg.linear.x = 0.0
             _msg.angular.z = 0.0
             self.PubCmdVel.publish(_msg)
+            self.DT = LastDT
             return
 
         # Speed Calculations
@@ -114,7 +140,7 @@ class fab_position_control(Node):
 
         _DeltaPosX = self.TargetPosX - self.PosX
         _DeltaPosY = self.TargetPosY - self.PosY
-        _d = math.sqrt(_DeltaPosX**2 + _DeltaPosY**2)
+        _d = math.hypot(_DeltaPosX, _DeltaPosY)
         _Tethad = math.atan2(_DeltaPosY, _DeltaPosX)
         _ErrorTetha = math.atan2(math.sin(_Tethad - self.Tetha), math.cos(_Tethad - self.Tetha))
         _VelB = self.KVel * _d
@@ -122,23 +148,56 @@ class fab_position_control(Node):
 
         if self.ShowMoreDebugInfo:
             self.get_logger().info(
+                f'DeltaPosX: {_DeltaPosX}'
+                f'DeltaPosY: {_DeltaPosY}'
+            )
+
+        if self.ShowMoreDebugInfo:
+            self.get_logger().info(
                 f'Error Tetha: {_ErrorTetha} rad/s '
                 f'Error DIstance: {_d} m'
             )
-
         # Wut to publish
         # msg.linear.x = 0.5   # Kecepatan linear (m/s)
         # msg.angular.z = 0.0  # Kecepatan angular (radian/s)
         _msg = Twist()
-
-        if _d < 0.05:  # sudah sampai, berhenti
-            _msg.linear.x = 0.0
-            _msg.angular.z = 0.0
+        if _d < self.ErrorTol:
+            self.WasRotate = False   # stop
+            self.IsFinished = True
         else:
-            _msg.linear.x = _VelB
-            _msg.angular.z = _OmegaB
+            if not self.WasRotate:
+                # fase putar di tempat
+                if abs(_ErrorTetha) > self.AlignTol:
+                    _msg.angular.z = _OmegaB
+                else:
+                    self.WasRotate = True
+            else:
+                # fase maju; kembali ke putar jika arah melenceng jauh
+                if abs(_ErrorTetha) > self.RealignTol:
+                    self.WasRotate = False
+                else:
+                    _msg.linear.x = _VelB
+                    _msg.angular.z = 0.0   # koreksi arah kecil
+
+        if self.RunningOrder < len(self.TargetsPosition) and self.IsFinished:
+            self.RunningOrder += 1
+            if self.RunningOrder < len(self.TargetsPosition):
+                self._logger.info(
+                    f'Next Target Position: {self.TargetsPosition[self.RunningOrder]}'
+                )
+                self.TargetPosX = self.TargetsPosition[self.RunningOrder][0]
+                self.TargetPosY = self.TargetsPosition[self.RunningOrder][1]
+                self.IsFinished = False
+            else:
+                _msg.linear.x = 0.0
+                _msg.angular.z = 0.0
+                self.get_logger().info(
+                    f'All Targets Position Finished'
+                )
 
         self.PubCmdVel.publish(_msg)
+        # self.LastVelL = self.Vel_WL.data
+        # self.LastVelR = self.Vel_WR.data
 
 def main(args=None):
     rclpy.init(args=args)
