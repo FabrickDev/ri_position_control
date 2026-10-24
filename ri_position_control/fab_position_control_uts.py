@@ -15,6 +15,8 @@ class fab_position_control_uts(Node):
     def __init__(self):
         super().__init__('fab_position_control_uts')
 
+        # See this code for Original Code: https://github.com/FabrickDev/ri_position_control/blob/main/ri_position_control/fab_position_control.py
+
         # Enable this for More Debug Info (Wheel Speed, Linear Speed, Angular Speed, DT, PosX, PosY, Tetha)
         self.ShowMoreDebugInfo = False
 
@@ -136,6 +138,7 @@ class fab_position_control_uts(Node):
                 f'[LOGGER] Linear Speed: {ThisLinearSpeed} m/s'
             )
 
+        # Global Position Estimator Calculation
         ThisXDot = ThisLinearSpeed * math.cos(self.Tetha)
         ThisYDot = ThisLinearSpeed * math.sin(self.Tetha)
 
@@ -156,6 +159,7 @@ class fab_position_control_uts(Node):
                 f'Angular Speed: {formatAngularSpeed} rad/s'
             )
 
+        # Position Control Calculation
         _DeltaPosX = self.TargetPosX - self.PosX
         _DeltaPosY = self.TargetPosY - self.PosY
         _d = math.hypot(_DeltaPosX, _DeltaPosY)
@@ -176,24 +180,23 @@ class fab_position_control_uts(Node):
                 f'Error DIstance: {_d} m'
             )
 
+        # Lil Script to Change Rotation First then Change Position
         _msg = Twist()
         if _d < self.ErrorTol:
             self.WasRotate = False   # stop
             self.IsFinished = True
         else:
             if not self.WasRotate:
-                # fase putar di tempat
                 if abs(_ErrorTetha) > self.AlignTol:
                     _msg.angular.z = _OmegaB
                 else:
                     self.WasRotate = True
             else:
-                # fase maju; kembali ke putar jika arah melenceng jauh
                 if abs(_ErrorTetha) > self.RealignTol:
                     self.WasRotate = False
                 else:
                     _msg.linear.x = _VelB
-                    _msg.angular.z = _OmegaB   # koreksi arah kecil
+                    _msg.angular.z = _OmegaB
 
         if self.RunningOrder < len(self.TargetsPosition) and self.IsFinished:
             self.RunningOrder += 1
@@ -212,8 +215,6 @@ class fab_position_control_uts(Node):
                 )
 
         self.PubCmdVel.publish(_msg)
-        # self.LastVelL = self.Vel_WL.data
-        # self.LastVelR = self.Vel_WR.data
 
 def main(args=None):
     rclpy.init(args=args)
