@@ -20,38 +20,41 @@ class fab_position_control_uts(Node):
         # Enable this for More Debug Info (Wheel Speed, Linear Speed, Angular Speed, DT, PosX, PosY, Tetha)
         self.ShowMoreDebugInfo = False
 
-        # Script Kurangi 0.2 tambah 0.4
-        self.TargetsPosition = [
-            [0.9, 2.51],
-            [2.5, 2.51],
-            [2.5, 3.21],
-            [3.8, 3.21],
-            [3.8, 0.81],
-            [8.43, 0.81],
-            [8.41, 6.71],
-            [7.6, 7.71],
-            [7.0, 8.01],
-            [6.2, 8.01],
-            [5.6, 7.51],
-            [5.1, 6.71],
-            [5.1, 4.76],
-            [4.2, 4.76],
-            [4.2, 7.41],
-            [1.7, 8.31],
-            [0.3, 8.31],
-            [0.3, 5.01]
-        ]
+        # Posisi Target Robot
+        self.TargetsPosition = [[1.0, 2.3], 
+                                [2.6, 2.3], 
+                                [2.6, 3.0], 
+                                [3.9, 3.0], 
+                                [3.9, 0.45], 
+                                [9.1, 0.45], 
+                                [9.1, 7.5], 
+
+                                [8.7 + 0.1, 8.6 - 0.48],
+                                [8.1 + 0.1, 9.1 - 0.48], 
+                                [6.9 + 0.1, 9.1 - 0.48],
+                                [6.2 + 0.1, 8.4 - 0.48], 
+
+                                [5.7 + 0.1, 7.5 - 0.48], # Setelah Lingkaran
+                                [5.7 + 0.1, 5.67 - 0.48], 
+                                [4.85 + 0.1, 5.67 - 0.48], # Setelah Lingkaran Kebawah
+                                [4.85 + 0.1, 8.65 - 0.48], 
+                                [2.80 + 0.1, 8.65 - 0.48],
+                                [2.80 + 0.1, 9.4 - 0.48],  
+                                [0.75 + 0.1, 9.4 - 0.48], 
+                                [0.75 + 0.1, 5.5 - 0.48]] # Ke FInish
+        self.TargetsPosition = [[x - 0.1, y + 0.48] for x, y in self.TargetsPosition]
+
         self.RunningOrder = 0
         self.IsFinished = False
 
         # Constants Proportional:
-        self.KTetha = 1
-        self.KVel = 1.2
+        self.KTetha = 1.2
+        self.KVel = 2.0
 
         # Error Tolarance
         self.ErrorTol = 0.02
         self.AlignTol = 0.02      # selesai berputar
-        self.RealignTol = 0.2     # putar lagi jika melenceng sebesar ini
+        self.RealignTol = 0.3     # putar lagi jika melenceng sebesar ini
         self.WasRotate = False
 
         self.wheel_radius = 0.03
@@ -81,7 +84,7 @@ class fab_position_control_uts(Node):
         self.LastVelR = 0.0
         self.LastVelL = 0.0
 
-        # Gathering Data From input_ik and Wheels
+        # Topic
         self.PubCmdVel = self.create_publisher(
             Twist,
             '/cmd_vel',
@@ -94,7 +97,7 @@ class fab_position_control_uts(Node):
             10
         )
 
-        self.create_timer(0.01, self.fab_position_control_func)
+        self.create_timer(0.1, self.fab_position_control_func)
         #self.create_timer(0.1, self.fab_test_angular)
 
         self.get_logger().info(
@@ -108,11 +111,6 @@ class fab_position_control_uts(Node):
         #     self.get_logger().info(
         #         f'Left Wheel Velocity: {self.Vel_WL.data} | Right Wheel Velocity: {self.Vel_WR.data}'
         #     )
-    def fab_test_angular(self):
-        _msg = Twist()
-        _msg.linear.x = 0.0
-        _msg.angular.z = 0.1
-        self.PubCmdVel.publish(_msg)
 
     def fab_position_control_func(self):
 
@@ -122,11 +120,11 @@ class fab_position_control_uts(Node):
         self.DT = self.CurrentTime - self.PrevTime
 
         if self.CurrentTime == 0 or self.DT > 1000.0:  # First Time or DT too big, reset
-            _msg = Twist()
-            _msg.linear.x = 0.0
-            _msg.angular.z = 0.0
-            self.PubCmdVel.publish(_msg)
-            self.DT = LastDT
+            # _msg = Twist()
+            # _msg.linear.x = 0.0
+            # _msg.angular.z = 0.0
+            # self.PubCmdVel.publish(_msg)
+            # self.DT = LastDT
             return
 
         # Speed Calculations
@@ -198,6 +196,7 @@ class fab_position_control_uts(Node):
                     _msg.linear.x = _VelB
                     _msg.angular.z = _OmegaB
 
+        # Position Order Change
         if self.RunningOrder < len(self.TargetsPosition) and self.IsFinished:
             self.RunningOrder += 1
             if self.RunningOrder < len(self.TargetsPosition):
@@ -213,7 +212,7 @@ class fab_position_control_uts(Node):
                 self.get_logger().info(
                     f'All Targets Position Finished'
                 )
-
+        # Send Command to Robot
         self.PubCmdVel.publish(_msg)
 
 def main(args=None):
