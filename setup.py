@@ -24,7 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'position_control = ri_position_control.fab_position_control:main'
+            'position_control = ri_position_control.fab_position_control:main',
+            'position_control_uts = ri_position_control.fab_position_control_uts:main'
         ],
     },
 )
